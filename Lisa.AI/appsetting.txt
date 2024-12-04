@@ -1,0 +1,127 @@
+﻿{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "LLamaWorker": "Debug"
+    }
+  },
+  "AllowedHosts": "*",
+  // API Key
+  "ApiKey": "",
+  "GlobalSettings": {
+    "CurrentModelIndex": 0,
+    // Auto release time, in minutes. 0 means no auto-release.
+    "AutoReleaseTime": 30
+  },
+  // LLM Service Configuration
+  "LLmModelSettings": [
+    {
+      "Name": "llama3.1_8b",
+      "Description": "Llama 3.1 8b Chinese Chat q4_k_m",
+      "Version": "3.1",
+      "WebSite": "https://huggingface.co/shenzhi-wang/Llama3.1-8B-Chinese-Chat",
+      "SystemPrompt": "You are a helpful assistant",
+      "ModelParams": {
+        "ModelPath": "H:\\workspace\\gpt\\models\\llama3.1_8b_chinese_chat_q4_k_m.gguf",
+        "ContextSize": 32768,
+        "Seed": 1337,
+        "GpuLayerCount": 30
+      },
+      "AntiPrompts": [ "<|eot_id|>", "<|endoftext|>" ],
+      "WithTransform": {
+        "HistoryTransform": "LLamaWorker.Transform.LLamaHistoryTransform"
+      },
+      "ToolPrompt": {
+        "Index": 1,
+        "Lang": "zh"
+      }
+    },
+    {
+      "Name": "qwen2_7b",
+      "Description": "Qwen v2 7b instruct q5_k_m",
+      "Version": "2",
+      "WebSite": "https://github.com/QwenLM/Qwen2",
+      // Default configuration used if unspecified
+      "SystemPrompt": "You are a helpful assistant",
+      // LLm ModelParams
+      "ModelParams": {
+        "ModelPath": "H:\\workspace\\gpt\\models\\qwen2-7b-instruct-q5_k_m.gguf",
+        "ContextSize": 32768,
+        "Seed": 1337,
+        "GpuLayerCount": 50,
+        "FlashAttention": true,
+        "Embeddings": false
+      },
+      "AntiPrompts": [ "<|im_start|>", "<|im_end|>" ],
+      "WithTransform": {
+        "HistoryTransform": "LLamaWorker.Transform.BaseHistoryTransform"
+      },
+      "ToolPrompt": {
+        "Index": 2, // Tool prompt configuration index
+        "Lang": "zh" // Tool prompt language
+      }
+    },
+    {
+      "Name": "Phi-3-mini-4k-instruct-q4",
+      "Description": "The Phi-3-Mini-4K-Instruct is a 3.8B parameter, lightweight, state-of-the-art open model trained with high-quality datasets, emphasizing reasoning.",
+      "WebSite": "https://www.modelscope.cn/models/sangsq/Phi-3-mini-4k-instruct-gguf",
+      "Version": "2024-07-08",
+      "SystemPrompt": "You are a helpful AI assistant.",
+      "ModelParams": {
+        "ModelPath": "H:\\workspace\\gpt\\models\\Phi-3-mini-4k-instruct-gguf\\Phi-3-mini-4k-instruct-fp16.gguf",
+        "ContextSize": 4096,
+        "Seed": 1337,
+        "GpuLayerCount": 20
+      },
+      "AntiPrompts": [ "<|user|>", "<|end|>", "<|endoftext|>" ],
+      "WithTransform": {
+        "HistoryTransform": "LLamaWorker.Transform.ZephyrHistoryTransform"
+      },
+      "ToolPrompt": {
+        "Index": 0,
+        "Lang": "en"
+      }
+    },
+    {
+      "Name": "Llama3-8B-instruct",
+      "Description": "Meta Llama 3, a family of advanced models from Meta, available in 8B and 70B parameter sizes.",
+      "WebSite": "https://ai.meta.com/blog/meta-llama-3/",
+      "Version": "1.0",
+      "SystemPrompt": "You are a helpful assistant.",
+      "ModelParams": {
+        "ModelPath": "H:\\workspace\\gpt\\models\\llama3.gguf",
+        "ContextSize": 8192,
+        "Seed": 1337,
+        "GpuLayerCount": 20,
+        "Embeddings": false
+      },
+      "AntiPrompts": [ "<|eot_id|>", "<|endoftext|>" ],
+      "WithTransform": {
+        "HistoryTransform": "LLamaWorker.Transform.LLamaHistoryTransform"
+      }
+    },
+    {
+      "Name": "codegemma:7b-instruct_q4",
+      "Description": "CodeGemma is a versatile model for coding tasks like completion, generation, and instruction-following.",
+      "Version": "1.0",
+      "WebSite": "https://ollama.com/library/codegemma:7b",
+      "SystemPrompt": "You are a helpful, respectful, and honest coding assistant.\nAlways reply using markdown.\nFor code refactoring, use markdown with code formatting.",
+      "ModelParams": {
+        "ModelPath": "H:\\workspace\\gpt\\models\\google\\codegemma.gguf",
+        "ContextSize": 4096,
+        "Seed": 1337,
+        "GpuLayerCount": 20
+      },
+      "AntiPrompts": [ "<start_of_turn>", "<end_of_turn>" ],
+      "WithTransform": {
+        "HistoryTransform": "LLamaWorker.Transform.GemmaHistoryTransform"
+      }
+    }
+  ],
+  "ToolPromptConfig": [
+    // Configuration for tool prompts (translated as needed)
+  ],
+  // Independent embedding service configuration
+  "EmbedingForward": "http://127.0.0.1:5000/embeddings"
+}
