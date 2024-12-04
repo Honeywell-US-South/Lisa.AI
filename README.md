@@ -5,7 +5,7 @@ Lisa.AI - In Development
 ##### 1. Go to:  [Ollama’s library](https://ollama.com/library)
    ![image](https://github.com/user-attachments/assets/e3b5a4cb-f3f4-454f-bedf-e541fe3cc952)
 
-##### 2. Select a Model
+##### 2. Get Model Information
    ![image](https://github.com/user-attachments/assets/65d95e7d-9f2c-4355-8003-0de5def5c320)
 
 ##### 3. Get teh digest from the manifest. <strong>Format: `https://registry.ollama.ai/v2/library/MODEL_NAME/manifests/MODEL_PARAMETERS`</strong>
