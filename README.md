@@ -3,7 +3,8 @@ Lisa.AI - In Development
 
 ### Download .gguf Models From Ollama Library
 ##### 1. Go to:  [Ollama’s library](https://ollama.com/library)
-   ![image](https://github.com/user-attachments/assets/847724aa-bf38-4974-baae-32b10f930e55)
+   ![image](https://github.com/user-attachments/assets/e3b5a4cb-f3f4-454f-bedf-e541fe3cc952)
+
 ##### 2. Select a Model
    ![image](https://github.com/user-attachments/assets/65d95e7d-9f2c-4355-8003-0de5def5c320)
 
