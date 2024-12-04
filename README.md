@@ -9,7 +9,7 @@ Lisa.AI - In Development
 ##### 2. Select a model and get MODEL_NAME and MODEL_PARAMETERS
    ![image](https://github.com/user-attachments/assets/65d95e7d-9f2c-4355-8003-0de5def5c320)
 
-##### 3. Get teh digest from the manifest. <strong>Format: `https://registry.ollama.ai/v2/library/MODEL_NAME/manifests/MODEL_PARAMETERS`</strong>
+##### 3. Get the digest from the manifest. <strong>Format: `https://registry.ollama.ai/v2/library/MODEL_NAME/manifests/MODEL_PARAMETERS`</strong>
    ```plaintext
    https://registry.ollama.ai/v2/library/llama3.2/manifests/3b
    ```
