@@ -2,7 +2,7 @@
 using Lisa.AI.FunctionCall;
 using Lisa.AI.OpenAIModels.ChatCompletionModels;
 
-namespace Lisa.AI.Blazor.Cpu.Transform
+namespace Lisa.AI.Transform
 {
     public interface ITemplateTransform
     {

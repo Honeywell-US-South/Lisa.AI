@@ -1,4 +1,4 @@
-﻿namespace Lisa.AI.Blazor.Cpu.Transform
+﻿namespace Lisa.AI.Transform
 {
     /// <summary>
     /// ChatML History Transformation for Gemma Model

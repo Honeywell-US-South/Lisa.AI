@@ -143,6 +143,8 @@ public class ToolPromptGenerator
             return string.Empty;
         }
 
+        if (_config.Count == 0) throw new OperationCanceledException("Tools call but ToolPromptConfig is not set in appsettings.json");
+        if (tpl >= _config.Count) throw new IndexOutOfRangeException($"Model set ToolPrompt Index {tpl} out of range. Please check ToolPromptConfig in appsettings.json for correct index.");
         var config = _config[tpl];
 
         var toolDescriptions = req.tools.Select(tool => GetFunctionDescription(tool.function, config.ToolDescTemplate[lang])).ToArray();

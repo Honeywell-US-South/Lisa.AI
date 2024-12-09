@@ -3,7 +3,7 @@ using Lisa.AI.FunctionCall;
 using Lisa.AI.OpenAIModels.ChatCompletionModels;
 using System.Text;
 
-namespace Lisa.AI.Blazor.Cpu.Transform
+namespace Lisa.AI.Transform
 {
     /// <summary>
     /// ChatML History Transformation

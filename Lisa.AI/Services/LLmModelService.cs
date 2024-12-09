@@ -1,5 +1,4 @@
-﻿using Lisa.AI.Blazor.Cpu.Transform;
-using Lisa.AI.Config;
+﻿using Lisa.AI.Config;
 using Lisa.AI.Config.ModelSettings;
 using Lisa.AI.FunctionCall;
 using Lisa.AI.OpenAIModels.BaseCompletionModels;
@@ -8,6 +7,7 @@ using Lisa.AI.OpenAIModels.CommonModels;
 using Lisa.AI.OpenAIModels.CompletionModels;
 using Lisa.AI.OpenAIModels.EmbeddingModels;
 using Lisa.AI.OpenAIModels.ToolModels;
+using Lisa.AI.Transform;
 using LLama;
 using LLama.Common;
 using LLama.Sampling;
