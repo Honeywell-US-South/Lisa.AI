@@ -114,8 +114,8 @@ public class ToolPromptGenerator
         foreach (Match match in matches)
         {
             string functionName = match.Groups[1].Value;
-            string arguments = match.Groups[3].Success ? match.Groups[3].Value : "";
-            if (string.IsNullOrWhiteSpace(arguments) || _nullWords.Contains(arguments))
+            string arguments = match.Groups[2].Success ? match.Groups[2].Value : "";
+            if (string.IsNullOrWhiteSpace(arguments) || _nullWords.Contains(arguments) || arguments == "{}")
             {
                 arguments = null;
             }
@@ -138,27 +138,54 @@ public class ToolPromptGenerator
     public string GenerateToolPrompt(ChatCompletionRequest req, int tpl = 0, string lang = "en")
     {
         // Return empty if no tools or the tool choice is "none"
-        if (req.tools == null || req.tools.Length == 0 || (req.tool_choice != null && req.tool_choice.ToString() == "none"))
+        if (req.tools == null || req.tools.Length == 0 ||
+            (req.tool_choice != null && req.tool_choice.ToString() == "none"))
         {
             return string.Empty;
         }
 
-        if (_config.Count == 0) throw new OperationCanceledException("Tools call but ToolPromptConfig is not set in appsettings.json");
-        if (tpl >= _config.Count) throw new IndexOutOfRangeException($"Model set ToolPrompt Index {tpl} out of range. Please check ToolPromptConfig in appsettings.json for correct index.");
+        // Validate configuration
+        if (_config.Count == 0)
+            throw new OperationCanceledException("Tools call but ToolPromptConfig is not set in appsettings.json");
+
+        if (tpl >= _config.Count)
+            throw new IndexOutOfRangeException($"Model set ToolPrompt Index {tpl} out of range. Please check ToolPromptConfig in appsettings.json for correct index.");
+
         var config = _config[tpl];
 
-        var toolDescriptions = req.tools.Select(tool => GetFunctionDescription(tool.function, config.ToolDescTemplate[lang])).ToArray();
-        var toolNames = string.Join(",", req.tools.Select(tool => tool.function.name));
+        // Generate tool descriptions
+        var toolDescriptions = req.tools.Select(tool => GenerateToolsDescription(tool.function)).ToArray();
+        var toolNames = string.Join(", ", req.tools.Select(tool => tool.function.name));
 
-        var toolDescTemplate = config.FN_CALL_TEMPLATE_INFO[lang];
-        var toolDesc = string.Join("\n\n", toolDescriptions);
-        var toolSystem = toolDescTemplate.Replace("{tool_descs}", toolDesc);
+        // Prepare tool descriptions for display
+        var toolInfo = req.tools.Select(tool => GetFunctionDescription(tool.function, config.ToolDescTemplate[lang])).ToArray();
+        var toolDesc = string.Join("\n\n", toolInfo);
 
+        toolDesc += "\n\n**Important**: Only use the tools explicitly provided in this list. Do not suggest or create tools that are not defined here.";
+        toolDesc += "\n\nWhen determining which tool to use:";
+
+        int count = 1;
+        foreach (var desc in toolDescriptions)
+        {
+            toolDesc += $"\n{count}. Use {desc}.";
+            count++;
+        }
+
+        toolDesc += $"\n{count}. If the query does not match any available tool, respond as a helpful assistant in a conversational manner without suggesting tools or requiring a tool call.";
+
+        // Prepare system template
+        var toolSystem = config.FN_CALL_TEMPLATE_INFO[lang].Replace("{tool_descs}", toolDesc);
+
+        // Prepare the tool prompt based on parallel or sequential function calls
         var parallelFunctionCalls = req.tool_choice?.ToString() == "parallel";
         var toolTemplate = parallelFunctionCalls ? config.FN_CALL_TEMPLATE_FMT_PARA[lang] : config.FN_CALL_TEMPLATE_FMT[lang];
         var toolPrompt = string.Format(toolTemplate, config.FN_NAME, config.FN_ARGS, config.FN_RESULT, config.FN_EXIT, toolNames);
+
+        // Combine system and prompt information
         return $"\n\n{toolSystem}\n\n{toolPrompt}";
     }
+
+
 
     /// <summary>
     /// Generates a function description
@@ -206,4 +233,22 @@ public class ToolPromptGenerator
         var parameters = JsonSerializer.Serialize(properties, new JsonSerializerOptions { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) });
         return string.Format(toolDescTemplate, nameForHuman, nameForModel, descriptionForModel, parameters).Trim();
     }
+
+    /// <summary>
+    /// Generates a description for a single tool in the desired format.
+    /// </summary>
+    /// <param name="function">Function information</param>
+    /// <returns>Formatted description of the tool</returns>
+    private string GenerateToolsDescription(FunctionInfo function)
+    {
+        var toolName = function.name;
+        var description = function.description ?? "No description provided.";
+       
+
+        // Format the tool description
+        return $"**{toolName}** for {description}";
+    }
+
+
+
 }

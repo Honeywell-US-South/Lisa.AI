@@ -33,7 +33,7 @@ public class LLmModelService : ILLmModelService
     private LLmModelSettings _currentSettings;
     private LLamaWeights _model;
     private LLamaEmbedder? _embedder;
-
+    private IToolService _toolService;
     private int _loadedModelIndex = -1;
 
     private readonly JsonSerializerOptions _jsonSerializerOptions = new()
@@ -94,6 +94,7 @@ public class LLmModelService : ILLmModelService
     /// </summary>
     public LLmModelService(IOptions<List<LLmModelSettings>> options, ILogger<LLmModelService> logger, ToolPromptGenerator toolPromptGenerator)
     {
+        _toolService = new ToolService();
         _logger = logger;
         _settings = options.Value;
         _toolPromptGenerator = toolPromptGenerator;
@@ -111,6 +112,10 @@ public class LLmModelService : ILLmModelService
     {
         return _model.Metadata;
     }
+
+    #region Tool Registration
+
+    #endregion
 
     #region ChatCompletion
 
@@ -140,6 +145,7 @@ public class LLmModelService : ILLmModelService
 
         _logger.LogDebug("Prompt context: {prompt_context}", chatHistory.ChatHistory);
 
+        // Generate initial completion
         await foreach (var output in ex.InferAsync(chatHistory.ChatHistory, genParams, cancellationToken))
         {
             _logger.LogTrace("Message: {output}", output);
@@ -151,49 +157,102 @@ public class LLmModelService : ILLmModelService
         _logger.LogDebug("Prompt tokens: {prompt_tokens}, Completion tokens: {completion_tokens}", prompt_tokens, completion_tokens);
         _logger.LogDebug("Completion result: {result}", result);
 
-        // Check tool return
+        // Check if tool calls are needed
         if (chatHistory.IsToolPromptEnabled)
         {
             var tools = _toolPromptGenerator.GenerateToolCall(result.ToString(), _currentSettings.ToolPrompt.Index);
             if (tools.Count > 0)
             {
                 _logger.LogDebug("Tool calls: {tools}", tools.Select(x => x.name));
-                return new ChatCompletionResponse
+
+                // Execute tool calls
+                var toolMessages = tools.Select(x => new ToolMessage
                 {
-                    id = $"chatcmpl-{Guid.NewGuid():N}",
-                    model = request.model,
-                    created = DateTimeOffset.Now.ToUnixTimeSeconds(),
-                    choices = new[]
+                    id = $"call_{Guid.NewGuid():N}",
+                    function = new ToolMessageFuntion
                     {
-                new ChatCompletionResponseChoice
+                        name = x.name,
+                        arguments = x.arguments
+                    }
+                }).ToList();
+
+                bool hasTools = toolMessages.All(tool => _toolService.IsToolRegistered(tool.function.name));
+                
+                if (hasTools)
                 {
-                    index = 0,
-                    finish_reason = "tool_calls",
-                    message = new ChatCompletionMessage
+                    var toolResponses = await _toolService.ExecuteToolCallsAsync(toolMessages);
+
+                    // Add tool results back into the conversation
+                    foreach (var toolResponse in toolResponses)
                     {
-                        role = "assistant",
-                        tool_calls = tools.Select(x => new ToolMessage
+                        var toolResultMessage = new ChatCompletionMessage
                         {
-                            id = $"call_{Guid.NewGuid():N}",
-                            function = new ToolMessageFuntion
-                            {
-                                name = x.name,
-                                arguments = x.arguments
-                            }
-                        }).ToArray()
+                            role = "assistant",
+                            content = $"Tool Result for {toolResponse.Id}: {toolResponse.Result ?? toolResponse.Error}"
+                        };
+                        request.messages = request.messages.Append(toolResultMessage).ToArray();
                     }
-                }
-            },
-                    usage = new UsageInfo
+
+                    // Generate a final completion with tool results
+                    result.Clear();
+                    await foreach (var finalOutput in ex.InferAsync(GetChatHistory(request).ChatHistory, genParams, cancellationToken))
                     {
-                        prompt_tokens = prompt_tokens,
-                        completion_tokens = completion_tokens,
-                        total_tokens = prompt_tokens + completion_tokens
+                        result.Append(finalOutput);
+                        completion_tokens++;
                     }
-                };
+                } else
+                { //Tools not registed.
+                    var content = $@"
+                        One or more tools required to complete this request are not registered. Please execute the tool calls listed below and append the results to the original request in the following format:
+
+                        1. Process each `tool_call` and execute the corresponding tool.
+                        2. For each tool result, append a message to the `messages` array in the format:
+
+                           {{
+                               ""role"": ""assistant"",
+                               ""content"": ""Tool Result for <tool_id>: <tool_result>""
+                           }}
+
+                        3. Resubmit the updated request with the `messages` array containing the tool results for final processing.";
+                    return new ChatCompletionResponse
+                    {
+                        id = $"chatcmpl-{Guid.NewGuid():N}",
+                        model = request.model,
+                        created = DateTimeOffset.Now.ToUnixTimeSeconds(),
+                        choices = new[]
+                    {
+                        new ChatCompletionResponseChoice
+                        {
+                            index = 0,
+                            finish_reason = "tool_calls",
+                            message = new ChatCompletionMessage
+                            {
+                                role = "assistant",
+                                content = content,
+                                tool_calls = tools.Select(x => new ToolMessage
+                                {
+                                    id = $"call_{Guid.NewGuid():N}",
+                                    function = new ToolMessageFuntion
+                                    {
+                                        name = x.name,
+                                        arguments = x.arguments
+                                    }
+                                }).ToArray()
+                            }
+                        }
+                    },
+                        usage = new UsageInfo
+                        {
+                            prompt_tokens = prompt_tokens,
+                            completion_tokens = completion_tokens,
+                            total_tokens = prompt_tokens + completion_tokens
+                        }
+                    };
+                }
             }
         }
 
+        // Return the final response
         return new ChatCompletionResponse
         {
             id = $"chatcmpl-{Guid.NewGuid():N}",
@@ -201,17 +260,17 @@ public class LLmModelService : ILLmModelService
             created = DateTimeOffset.Now.ToUnixTimeSeconds(),
             choices = new[]
             {
-        new ChatCompletionResponseChoice
-        {
-            index = 0,
-            finish_reason = completion_tokens >= request.max_tokens ? "length" : "stop",
-            message = new ChatCompletionMessage
-            {
-                role = "assistant",
-                content = result.ToString()
-            }
-        }
-    },
+                new ChatCompletionResponseChoice
+                {
+                    index = 0,
+                    finish_reason = completion_tokens >= request.max_tokens ? "length" : "stop",
+                    message = new ChatCompletionMessage
+                    {
+                        role = "assistant",
+                        content = result.ToString()
+                    }
+                }
+            },
             usage = new UsageInfo
             {
                 prompt_tokens = prompt_tokens,
@@ -254,68 +313,33 @@ public class LLmModelService : ILLmModelService
             model = request.model,
             choices = new[]
             {
-        new ChatCompletionChunkResponseChoice
-        {
-            index = index,
-            delta = new ChatCompletionMessage
+            new ChatCompletionChunkResponseChoice
             {
-                role = "assistant"
-            },
-            finish_reason = null
+                index = index,
+                delta = new ChatCompletionMessage
+                {
+                    role = "assistant"
+                },
+                finish_reason = null
+            }
         }
-    }
         }, _jsonSerializerOptions);
         yield return $"data: {chunk}\n\n";
 
-        // Token interception for tool activation
-        List<string> tokens = new();
+        var tokens = new List<string>();
         bool toolActive = false;
 
         await foreach (var output in ex.InferAsync(chatHistory.ChatHistory, genParams, cancellationToken))
         {
             _logger.LogTrace("Message: {output}", output);
+            tokens.Add(output);
 
-            if (chatHistory.IsToolPromptEnabled)
+            if (chatHistory.IsToolPromptEnabled && tokens.Count >= 3)
             {
-                if (toolActive || tokens.Count < 3)
-                {
-                    tokens.Add(output);
-                    continue;
-                }
-
                 toolActive = _toolPromptGenerator.IsToolActive(tokens, _currentSettings.ToolPrompt.Index);
                 if (toolActive)
                 {
-                    _logger.LogDebug("Tool is active.");
-                    tokens.Add(output);
-                    continue;
-                }
-                else
-                {
-                    chatHistory.IsToolPromptEnabled = false;
-                    foreach (var token in tokens)
-                    {
-                        chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
-                        {
-                            id = id,
-                            created = created,
-                            model = request.model,
-                            choices = new[]
-                            {
-                        new ChatCompletionChunkResponseChoice
-                        {
-                            index = ++index,
-                            delta = new ChatCompletionMessage
-                            {
-                                role = null,
-                                content = token
-                            },
-                            finish_reason = null
-                        }
-                    }
-                        }, _jsonSerializerOptions);
-                        yield return $"data: {chunk}\n\n";
-                    }
+                    break;
                 }
             }
 
@@ -326,17 +350,17 @@ public class LLmModelService : ILLmModelService
                 model = request.model,
                 choices = new[]
                 {
-            new ChatCompletionChunkResponseChoice
-            {
-                index = ++index,
-                delta = new ChatCompletionMessage
+                new ChatCompletionChunkResponseChoice
                 {
-                    role = null,
-                    content = output
-                },
-                finish_reason = null
+                    index = ++index,
+                    delta = new ChatCompletionMessage
+                    {
+                        role = null,
+                        content = output
+                    },
+                    finish_reason = null
+                }
             }
-        }
             }, _jsonSerializerOptions);
             yield return $"data: {chunk}\n\n";
         }
@@ -348,39 +372,76 @@ public class LLmModelService : ILLmModelService
             if (tools.Count > 0)
             {
                 _logger.LogDebug("Tool calls: {tools}", tools.Select(x => x.name));
-                chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
+
+                var toolMessages = tools.Select(x => new ToolMessage
                 {
-                    id = id,
-                    created = created,
-                    model = request.model,
-                    choices = new[]
+                    id = $"call_{Guid.NewGuid():N}",
+                    function = new ToolMessageFuntion
                     {
-                new ChatCompletionChunkResponseChoice
+                        name = x.name,
+                        arguments = x.arguments
+                    }
+                }).ToList();
+
+                bool hasTools = toolMessages.All(tool => _toolService.IsToolRegistered(tool.function.name));
+
+                if (hasTools)
                 {
-                    index = ++index,
-                    delta = new ChatCompletionMessage
+                    var toolResponses = await _toolService.ExecuteToolCallsAsync(toolMessages);
+
+                    // Add tool results back into the conversation
+                    foreach (var toolResponse in toolResponses)
                     {
-                        role = null,
-                        tool_calls = tools.Select(x => new ToolMessage
+                        var toolResultMessage = new ChatCompletionMessage
                         {
-                            id = $"call_{Guid.NewGuid():N}",
-                            function = new ToolMessageFuntion
+                            role = "assistant",
+                            content = $"Tool Result for {toolResponse.Id}: {toolResponse.Result ?? toolResponse.Error}"
+                        };
+                        request.messages = request.messages.Append(toolResultMessage).ToArray();
+                    }
+
+                    // Generate a final completion with tool results
+                    tokens.Clear();
+                    await foreach (var finalOutput in ex.InferAsync(GetChatHistory(request).ChatHistory, genParams, cancellationToken))
+                    {
+                        chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
+                        {
+                            id = id,
+                            created = created,
+                            model = request.model,
+                            choices = new[]
                             {
-                                name = x.name,
-                                arguments = x.arguments
+                            new ChatCompletionChunkResponseChoice
+                            {
+                                index = ++index,
+                                delta = new ChatCompletionMessage
+                                {
+                                    role = null,
+                                    content = finalOutput
+                                },
+                                finish_reason = null
                             }
-                        }).ToArray()
-                    },
-                    finish_reason = "tool_calls"
+                        }
+                        }, _jsonSerializerOptions);
+                        yield return $"data: {chunk}\n\n";
+                    }
                 }
-            }
-                }, _jsonSerializerOptions);
-                yield return $"data: {chunk}\n\n";
-            }
-            else
-            {
-                foreach (var token in tokens)
+                else
                 {
+                    // Tools not registered, return the tool calls and instruct the user
+                    var content = $@"
+                        One or more tools required to complete this request are not registered. Please execute the tool calls listed below and append the results to the original request in the following format:
+
+                        1. Process each `tool_call` and execute the corresponding tool.
+                        2. For each tool result, append a message to the `messages` array in the format:
+
+                           {{
+                               ""role"": ""assistant"",
+                               ""content"": ""Tool Result for <tool_id>: <tool_result>""
+                           }}
+
+                        3. Resubmit the updated request with the `messages` array containing the tool results for final processing.";
+
                     chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
                     {
                         id = id,
@@ -388,40 +449,30 @@ public class LLmModelService : ILLmModelService
                         model = request.model,
                         choices = new[]
                         {
-                    new ChatCompletionChunkResponseChoice
-                    {
-                        index = ++index,
-                        delta = new ChatCompletionMessage
+                        new ChatCompletionChunkResponseChoice
                         {
-                            role = null,
-                            content = token
-                        },
-                        finish_reason = null
+                            index = 0,
+                            delta = new ChatCompletionMessage
+                            {
+                                role = "assistant",
+                                content = content,
+                                tool_calls = tools.Select(x => new ToolMessage
+                                {
+                                    id = $"call_{Guid.NewGuid():N}",
+                                    function = new ToolMessageFuntion
+                                    {
+                                        name = x.name,
+                                        arguments = x.arguments
+                                    }
+                                }).ToArray()
+                            },
+                            finish_reason = "tool_calls"
+                        }
                     }
-                }
                     }, _jsonSerializerOptions);
                     yield return $"data: {chunk}\n\n";
                 }
             }
-
-            chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
-            {
-                id = id,
-                created = created,
-                model = request.model,
-                choices = new[]
-                {
-            new ChatCompletionChunkResponseChoice
-            {
-                index = tools.Count > 0 ? 0 : ++index,
-                delta = null,
-                finish_reason = tools.Count > 0 ? "tool_calls" : "stop"
-            }
-        }
-            }, _jsonSerializerOptions);
-            yield return $"data: {chunk}\n\n";
-            yield return "data: [DONE]\n\n";
-            yield break;
         }
 
         chunk = JsonSerializer.Serialize(new ChatCompletionChunkResponse
@@ -431,18 +482,18 @@ public class LLmModelService : ILLmModelService
             model = request.model,
             choices = new[]
             {
-        new ChatCompletionChunkResponseChoice
-        {
-            index = ++index,
-            delta = null,
-            finish_reason = "stop"
+            new ChatCompletionChunkResponseChoice
+            {
+                index = ++index,
+                delta = null,
+                finish_reason = "stop"
+            }
         }
-    }
         }, _jsonSerializerOptions);
         yield return $"data: {chunk}\n\n";
         yield return "data: [DONE]\n\n";
-        yield break;
     }
+
 
     /// <summary>
     /// Generates chat history
@@ -667,6 +718,9 @@ public class LLmModelService : ILLmModelService
 
     #endregion
 
+
+
+    #region General Functions
     /// <summary>
     /// Generate inference parameters
     /// </summary>
@@ -710,6 +764,7 @@ public class LLmModelService : ILLmModelService
         };
         return inferenceParams;
     }
+    #endregion
 
     #region Dispose
 
