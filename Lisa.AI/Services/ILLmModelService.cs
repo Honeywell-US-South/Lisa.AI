@@ -1,4 +1,4 @@
-﻿using Lisa.AI.OpenAIModels.ChatCompletionModels;
+using Lisa.AI.OpenAIModels.ChatCompletionModels;
 using Lisa.AI.OpenAIModels.CompletionModels;
 using Lisa.AI.OpenAIModels.EmbeddingModels;
 
@@ -20,15 +20,31 @@ public interface ILLmModelService : IDisposable
     void InitModelIndex();
 
     /// <summary>
+    /// Initialize the specified embedding
+    /// </summary>
+    void InitEmbeddingIndex();
+
+    /// <summary>
     /// Explicitly release model resources
     /// </summary>
     void DisposeModel();
+
+    /// <summary>
+    /// Explicitly release embedding resources
+    /// </summary>
+    void DisposeEmbedding();
 
     /// <summary>
     /// Retrieve model information
     /// </summary>
     /// <returns></returns>
     IReadOnlyDictionary<string, string> GetModelInfo();
+
+    /// <summary>
+    /// Retrieve embedding information
+    /// </summary>
+    /// <returns></returns>
+    IReadOnlyDictionary<string, string> GetEmbeddingInfo();
 
     /// <summary>
     /// Complete a chat session
