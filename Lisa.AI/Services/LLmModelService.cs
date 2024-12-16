@@ -1,5 +1,6 @@
-﻿using Lisa.AI.Config;
+using Lisa.AI.Config;
 using Lisa.AI.Config.ModelSettings;
+using Lisa.AI.Extensions;
 using Lisa.AI.FunctionCall;
 using Lisa.AI.OpenAIModels.BaseCompletionModels;
 using Lisa.AI.OpenAIModels.ChatCompletionModels;
@@ -10,6 +11,7 @@ using Lisa.AI.OpenAIModels.ToolModels;
 using Lisa.AI.Transform;
 using LLama;
 using LLama.Common;
+using LLama.Native;
 using LLama.Sampling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -31,10 +33,13 @@ public class LLmModelService : ILLmModelService
     private readonly List<LLmModelSettings> _settings;
     private readonly ToolPromptGenerator _toolPromptGenerator;
     private LLmModelSettings _currentSettings;
+    private LLmModelSettings _embeddingSettings;
     private LLamaWeights _model;
+    private LLamaWeights? _embeddingModel;
     private LLamaEmbedder? _embedder;
     private IToolService _toolService;
     private int _loadedModelIndex = -1;
+    private int _loadedEmbeddingIndex = -1;
 
     private readonly JsonSerializerOptions _jsonSerializerOptions = new()
     {
@@ -55,7 +60,7 @@ public class LLmModelService : ILLmModelService
         }
 
         int loadModelIndex = GlobalSettings.CurrentModelIndex;
-
+        int loadEmbeddingIndex = GlobalSettings.CurrentEmbeddingIndex;
         if (GlobalSettings.IsModelLoaded && _loadedModelIndex == loadModelIndex)
         {
             _logger.LogInformation("Model is already loaded.");
@@ -77,16 +82,92 @@ public class LLmModelService : ILLmModelService
         }
 
         DisposeModel();
-
+        
         _model = LLamaWeights.LoadFromFile(settings.ModelParams);
-        if (settings.ModelParams.Embeddings)
+
+        // Load the LoRA fine-tuned weights
+        if (!string.IsNullOrWhiteSpace(settings.LoRAPath) && !string.IsNullOrEmpty(settings.LoRAPath))
         {
+            if (File.Exists(settings.LoRAPath))
+            {
+
+                var result = _model.ExApplyLoraFromFile(settings.LoRAPath);
+                if (result != 0)
+                {
+                    throw new InvalidOperationException($"Failed to apply LoRA from path: {settings.LoRAPath}");
+                }
+
+            } else
+            { //invalid path
+                _logger.LogError("Invalid LoRA path: {path}.", settings.LoRAPath);
+                throw new ArgumentException($"Invalid LoRA path: {settings.LoRAPath}");
+            }
+        } //if null or empty - ignore loading loRA
+        
+        
+        if (settings.ModelParams.Embeddings && loadModelIndex == loadEmbeddingIndex)
+        {
+            DisposeEmbedding();
+            _embeddingModel = null; //use _model instead
             _embedder = new LLamaEmbedder(_model, settings.ModelParams);
         }
 
         _currentSettings = settings;
+        if (_embedder != null && loadModelIndex == loadEmbeddingIndex)
+        {
+            _embeddingSettings = _currentSettings;
+            _loadedEmbeddingIndex = loadEmbeddingIndex;
+            GlobalSettings.IsEmbeddingLoaded = true;
+        } else
+        {
+            InitEmbeddingIndex();
+        }
         _loadedModelIndex = loadModelIndex;
         GlobalSettings.IsModelLoaded = true;
+    }
+
+    public void InitEmbeddingIndex()
+    {
+        if (_settings.Count == 0)
+        {
+            _logger.LogError("No model settings found.");
+            throw new ArgumentException("No model settings.");
+        }
+
+        int loadEmbeddingIndex = GlobalSettings.CurrentEmbeddingIndex;
+        if (GlobalSettings.IsEmbeddingLoaded && _loadedEmbeddingIndex == loadEmbeddingIndex)
+        {
+            _logger.LogInformation("Embedding is already loaded.");
+            return;
+        }
+
+        if (loadEmbeddingIndex < 0 || loadEmbeddingIndex >= _settings.Count)
+        {
+            _logger.LogError("Invalid embedding index: {modelIndex}.", loadEmbeddingIndex);
+            throw new ArgumentException("Invalid embedding index.");
+        }
+
+        var settings = _settings[loadEmbeddingIndex];
+
+        if (string.IsNullOrWhiteSpace(settings.ModelParams.ModelPath) || !File.Exists(settings.ModelParams.ModelPath))
+        {
+            _logger.LogError("Invalid embedding path: {path}.", settings.ModelParams.ModelPath);
+            throw new ArgumentException("Invalid embedding path.");
+        }
+
+        DisposeEmbedding();
+
+        _embeddingModel = LLamaWeights.LoadFromFile(settings.ModelParams);
+        if (settings.ModelParams.Embeddings)
+        {
+            _embedder = new LLamaEmbedder(_embeddingModel, settings.ModelParams);
+        }
+
+
+        _embeddingSettings = settings;
+
+        _loadedEmbeddingIndex = loadEmbeddingIndex;
+        GlobalSettings.IsEmbeddingLoaded = true;
     }
 
     /// <summary>
@@ -110,6 +191,15 @@ public class LLmModelService : ILLmModelService
     /// </summary>
     public IReadOnlyDictionary<string, string> GetModelInfo()
     {
+        return _model.Metadata;
+    }
+
+    /// <summary>
+    /// Gets ebedding metadata information.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> GetEmbeddingInfo()
+    {
+        if (_embeddingModel != null) return _embeddingModel.Metadata;
         return _model.Metadata;
     }
 
@@ -559,7 +649,7 @@ public class LLmModelService : ILLmModelService
             return new EmbeddingResponse();
         }
 
-        if (!_currentSettings.ModelParams.Embeddings)
+        if (!_embeddingSettings.ModelParams.Embeddings)
         {
             _logger.LogWarning("Model does not support embeddings.");
             return new EmbeddingResponse();
@@ -591,7 +681,7 @@ public class LLmModelService : ILLmModelService
     /// <summary>
     /// Indicates whether embeddings are supported
     /// </summary>
-    public bool IsSupportEmbedding => _currentSettings.ModelParams.Embeddings;
+    public bool IsSupportEmbedding => _embeddingSettings.ModelParams.Embeddings;
 
     #endregion
     #region Completion
@@ -775,10 +865,28 @@ public class LLmModelService : ILLmModelService
     {
         if (GlobalSettings.IsModelLoaded)
         {
-            _embedder?.Dispose();
             _model.Dispose();
+            if (_embedder != null && _embeddingModel == null)
+            {
+                _embedder?.Dispose();
+            }
             GlobalSettings.IsModelLoaded = false;
             _loadedModelIndex = -1;
+        }
+    }
+
+    /// <summary>
+    /// Manually release embedding resources
+    /// </summary>
+    public void DisposeEmbedding()
+    {
+        if (GlobalSettings.IsEmbeddingLoaded)
+        {
+            
+            _embedder?.Dispose();
+            _embeddingModel?.Dispose();
+            GlobalSettings.IsEmbeddingLoaded = false;
+            _loadedEmbeddingIndex = -1;
         }
     }
 
