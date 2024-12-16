@@ -1,4 +1,4 @@
-﻿using Lisa.AI.Config;
+using Lisa.AI.Config;
 using Lisa.AI.Config.ModelSettings;
 using Lisa.AI.FunctionCall;
 using Lisa.AI.OpenAIModels.ChatCompletionModels;
@@ -35,7 +35,7 @@ public class LLmModelDecorator : ILLmModelService
         {
             _logger.LogInformation("Auto release time: {time} min.", GlobalSettings.AutoReleaseTime);
             _idleThreshold = TimeSpan.FromMinutes(GlobalSettings.AutoReleaseTime);
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
             _idleTimer = new Timer(60000); // Check every minute
             _idleTimer.Elapsed += CheckIdle;
             _idleTimer.Start();
@@ -53,7 +53,7 @@ public class LLmModelDecorator : ILLmModelService
         finally
         {
             EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
         }
     }
 
@@ -71,7 +71,7 @@ public class LLmModelDecorator : ILLmModelService
         finally
         {
             EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
         }
     }
 
@@ -86,7 +86,7 @@ public class LLmModelDecorator : ILLmModelService
         finally
         {
             EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
         }
     }
 
@@ -104,7 +104,7 @@ public class LLmModelDecorator : ILLmModelService
         finally
         {
             EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
         }
     }
 
@@ -113,13 +113,13 @@ public class LLmModelDecorator : ILLmModelService
     {
         try
         {
-            BeginUseModel();
+            BeginUseEmbedding();
             return await _llmService.CreateEmbeddingAsync(request, cancellationToken);
         }
         finally
         {
-            EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            EndUseEmbedding();
+            _lastEmbeddingUsedTime = DateTime.Now;
         }
     }
 
@@ -134,7 +134,22 @@ public class LLmModelDecorator : ILLmModelService
         finally
         {
             EndUseModel();
-            _lastUsedTime = DateTime.Now;
+            _lastModelUsedTime = DateTime.Now;
+        }
+    }
+
+    ///<inheritdoc/>
+    public IReadOnlyDictionary<string, string> GetEmbeddingInfo()
+    {
+        try
+        {
+            BeginUseEmbedding();
+            return _llmService.GetModelInfo();
+        }
+        finally
+        {
+            EndUseEmbedding();
+            _lastEmbeddingUsedTime = DateTime.Now;
         }
     }
 
@@ -150,6 +165,17 @@ public class LLmModelDecorator : ILLmModelService
     }
 
     ///<inheritdoc/>
+    public void InitEmbeddingIndex()
+    {
+        if (GlobalSettings.IsEmbeddingLoaded && _embeddingUsageCount != 0)
+        {
+            _logger.LogWarning("Embedding is in use.");
+            throw new InvalidOperationException("Embedding is in use.");
+        }
+        _llmService.InitEmbeddingIndex();
+    }
+
+    ///<inheritdoc/>
     public void Dispose()
     {
         _llmService.Dispose();
@@ -161,13 +187,23 @@ public class LLmModelDecorator : ILLmModelService
         _llmService.DisposeModel();
     }
 
+    ///<inheritdoc/>
+    public void DisposeEmbedding()
+    {
+        _llmService.DisposeEmbedding();
+    }
+
     // Resource release timer
     private Timer? _idleTimer;
-    private DateTime _lastUsedTime;
+    private DateTime _lastModelUsedTime;
+    private DateTime _lastEmbeddingUsedTime;
     private readonly TimeSpan _idleThreshold;
 
     // Model usage count
     private int _modelUsageCount = 0;
+
+    // Embedding usage count
+    private int _embeddingUsageCount = 0;
 
     /// <summary>
     /// Begin model usage
@@ -183,11 +219,32 @@ public class LLmModelDecorator : ILLmModelService
     }
 
     /// <summary>
+    /// Begin embedding usage
+    /// </summary>
+    public void BeginUseEmbedding()
+    {
+        // Initialize model if not loaded
+        if (!GlobalSettings.IsEmbeddingLoaded)
+        {
+            _llmService.InitEmbeddingIndex();
+        }
+        Interlocked.Increment(ref _embeddingUsageCount);
+    }
+
+    /// <summary>
     /// End model usage
     /// </summary>
     public void EndUseModel()
     {
         Interlocked.Decrement(ref _modelUsageCount);
+    }
+
+    /// <summary>
+    /// End Embedding usage
+    /// </summary>
+    public void EndUseEmbedding()
+    {
+        Interlocked.Decrement(ref _embeddingUsageCount);
     }
 
     /// <summary>
@@ -197,7 +254,7 @@ public class LLmModelDecorator : ILLmModelService
     /// <param name="e"></param>
     private void CheckIdle(object? sender, object e)
     {
-        if (DateTime.Now - _lastUsedTime > _idleThreshold && GlobalSettings.IsModelLoaded && _modelUsageCount == 0)
+        if (DateTime.Now - _lastModelUsedTime > _idleThreshold && GlobalSettings.IsModelLoaded && _modelUsageCount == 0)
         {
             _logger.LogInformation("Auto release model.");
             DisposeModel();
