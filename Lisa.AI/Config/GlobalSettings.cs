@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 
 namespace Lisa.AI.Config;
 
@@ -13,9 +13,19 @@ public static class GlobalSettings
     public static int CurrentModelIndex { get; set; } = 0;
 
     /// <summary>
+    /// Index of the initially loaded embedding
+    /// </summary>
+    public static int CurrentEmbeddingIndex { get; set; } = 0;
+
+    /// <summary>
     /// Indicates whether the model has been successfully loaded
     /// </summary>
     public static bool IsModelLoaded { get; set; } = false;
+
+    /// <summary>
+    /// Indicates whether the embedded has been successfully loaded
+    /// </summary>
+    public static bool IsEmbeddingLoaded { get; set; } = false;
 
     /// <summary>
     /// Automatic model release time
@@ -30,6 +40,7 @@ public static class GlobalSettings
     {
         var applicationSettings = configuration.GetSection("GlobalSettings");
         CurrentModelIndex = applicationSettings.GetValue<int>("CurrentModelIndex");
+        CurrentEmbeddingIndex = applicationSettings.GetValue<int>("CurrentEmbeddingIndex");
         AutoReleaseTime = applicationSettings.GetValue<int>("AutoReleaseTime");
     }
 }
