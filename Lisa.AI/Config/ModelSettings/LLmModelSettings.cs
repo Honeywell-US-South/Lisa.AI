@@ -1,4 +1,4 @@
-﻿using LLama.Common;
+using LLama.Common;
 
 namespace Lisa.AI.Config.ModelSettings;
 
@@ -36,6 +36,11 @@ public class LLmModelSettings
     /// Model Loading Parameters
     /// </summary>
     public ModelParams ModelParams { get; set; }
+
+    /// <summary>
+    /// Finetune model path
+    /// </summary>
+    public string? LoRAPath { get; set; }
 
     /// <summary>
     /// Model Transformation Parameters
