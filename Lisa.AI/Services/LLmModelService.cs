@@ -11,7 +11,6 @@ using Lisa.AI.OpenAIModels.ToolModels;
 using Lisa.AI.Transform;
 using LLama;
 using LLama.Common;
-using LLama.Native;
 using LLama.Sampling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -292,18 +291,19 @@ public class LLmModelService : ILLmModelService
                     }
                 } else
                 { //Tools not registed.
-                    var content = $@"
-                        One or more tools required to complete this request are not registered. Please execute the tool calls listed below and append the results to the original request in the following format:
+                    var sb = new StringBuilder();
+                    sb.AppendLine("One or more tools required to complete this request are not registered. Please execute the tool calls listed below and append the results to the original request in the following format:");
+                    sb.AppendLine("1. Process each `tool_call` and execute the corresponding tool.");
+                    sb.AppendLine("2. For each tool result, append a message to the `messages` array in the format:");
+                    sb.AppendLine("    ```json");
+                    sb.AppendLine("   {");
+                    sb.AppendLine("       \"role\": \"assistant\",");
+                    sb.AppendLine("       \"content\": \"Tool Result for <tool_id>: <tool_result>\"");
+                    sb.AppendLine("   }");
+                    sb.AppendLine("   ```");
+                    sb.AppendLine("3. Resubmit the updated chat completion request with the `messages` array containing the tool results for final processing.");
 
-                        1. Process each `tool_call` and execute the corresponding tool.
-                        2. For each tool result, append a message to the `messages` array in the format:
-
-                           {{
-                               ""role"": ""assistant"",
-                               ""content"": ""Tool Result for <tool_id>: <tool_result>""
-                           }}
-
-                        3. Resubmit the updated request with the `messages` array containing the tool results for final processing.";
+                    var content = sb.ToString();
                     return new ChatCompletionResponse
                     {
                         id = $"chatcmpl-{Guid.NewGuid():N}",
